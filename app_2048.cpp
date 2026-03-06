@@ -15,19 +15,28 @@ bool app_2048::register_class() {
 }
 HWND app_2048::create_window()
 {
-	return CreateWindowExW(
-		0 /*empty extended styles*/,
-		s_class_name.c_str(),
-		L"2048",
-		WS_OVERLAPPED | WS_SYSMENU | WS_CAPTION |
-		WS_BORDER | WS_MINIMIZEBOX,//standardowe okno z menu paskiem i przy zamkniecia
-		CW_USEDEFAULT, 0, /*default position*/
-		CW_USEDEFAULT, 0, /*default size*/
+	// 1. Tworzymy okno g³ówne i od razu przypisujemy do pola klasy m_main
+	m_main = CreateWindowExW(
+		0, s_class_name.c_str(), L"2048",
+		WS_OVERLAPPED | WS_SYSMENU | WS_CAPTION | WS_BORDER | WS_MINIMIZEBOX,
+		CW_USEDEFAULT, 0,
+		400, 400, // Nadaj sta³y rozmiar, ¿eby widzieæ co siê dzieje
+		nullptr, nullptr, m_instance, this);
+
+	// 2. Tworzymy kwadracik u¿ywaj¹c m_main jako rodzica
+	m_rect_window = CreateWindowExW(
+		0,
+		L"STATIC", // U¿ywamy wbudowanej klasy STATIC [cite: 344]
 		nullptr,
-		nullptr,
-		m_instance,
-		this);
+		WS_CHILD | WS_VISIBLE | SS_CENTER, // Style okna potomnego [cite: 346]
+		10, 10,  // Pozycja X, Y wewn¹trz okna g³ównego
+		60, 60,  // Rozmiar kwadratu
+		m_main,  // Rodzic musi byæ ju¿ zainicjalizowany 
+		nullptr, m_instance, nullptr);
+
+	return m_main;
 }
+
 LRESULT app_2048::window_proc_static(
 	HWND window,
 	UINT message,
@@ -54,44 +63,77 @@ LRESULT app_2048::window_proc_static(
 	}
 	return DefWindowProcW(window, message, wparam, lparam);
 }
-LRESULT app_2048::window_proc(
-	HWND window, UINT message,
-	WPARAM wparam, LPARAM lparam)
+LRESULT app_2048::window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
 	switch (message) {
 	case WM_CLOSE:
 		DestroyWindow(window);
 		return 0;
+
 	case WM_DESTROY:
 		if (window == m_main)
-			PostQuitMessage(EXIT_SUCCESS);
+			PostQuitMessage(EXIT_SUCCESS); // [cite: 165]
 		return 0;
-	case WM_KEYDOWN:
+
+	case WM_KEYDOWN: { // Obs³uga klawiatury [cite: 898]
+		RECT rc;
+		GetWindowRect(m_rect_window, &rc);
+
+		// 2. Konwertujemy wspó³rzêdne ekranowe na wspó³rzêdne wewn¹trz okna g³ównego
+		MapWindowPoints(HWND_DESKTOP, m_main, (LPPOINT)&rc, 2);
+
+		int x = rc.left;
+		int y = rc.top;
+		int step = 1; // O ile pikseli przesuwamy
 		switch (wparam) {
 		case 'X':
-			DestroyWindow(window);
-			PostQuitMessage(EXIT_SUCCESS);
+			DestroyWindow(window); // [cite: 172]
+			return 0;
+
+		case 'Z': {
+			HBRUSH newBrush = CreateSolidBrush(RGB(0, 255, 0)); // [cite: 36]
+			HBRUSH oldBrush = (HBRUSH)SetClassLongPtrW(window, GCLP_HBRBACKGROUND, (LONG_PTR)newBrush);
+			if (oldBrush) DeleteObject(oldBrush); // [cite: 20]
+			InvalidateRect(window, nullptr, TRUE);
 			return 0;
 		}
-		return 0;
-		/*if (wparam == 'X') {
-			DestroyWindow(window);
-			PostQuitMessage(EXIT_SUCCESS);
+		case 'W': y -= step; break;
+		case 'S': y += step; break;
+		case 'A': x -= step; break;
+		case 'D': x += step; break;
+
+		case 'C': {
+			HBRUSH hBrush = (HBRUSH)GetClassLongPtrW(window, GCLP_HBRBACKGROUND);
+			if (hBrush) {
+				LOGBRUSH lb;
+				if (GetObjectW(hBrush, sizeof(LOGBRUSH), &lb) != 0) {
+					COLORREF color = lb.lbColor;
+					std::wstring msg = L"R: " + std::to_wstring(GetRValue(color)) +
+						L" G: " + std::to_wstring(GetGValue(color)) +
+						L" B: " + std::to_wstring(GetBValue(color));
+					MessageBoxW(window, msg.c_str(), L"Aktualny kolor", MB_OK);
+				}
+			}
 			return 0;
-		}*/
-	case WM_LBUTTONDOWN:
+		}
+		}
+		SetWindowPos(m_rect_window, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+		break; // Wyjœcie ze switch(wparam) do domyœlnej obs³ugi
+	}
+	case WM_LBUTTONDOWN: { // Obs³uga myszy - POZA blokiem klawiatury
 		RECT rect;
-		int w = GetSystemMetrics(SM_CXSCREEN);
-		int h = GetSystemMetrics(SM_CYSCREEN);
+		int screenW = GetSystemMetrics(SM_CXSCREEN); // [cite: 43]
+		int screenH = GetSystemMetrics(SM_CYSCREEN);
 		GetWindowRect(m_main, &rect);
-		if (rect.left +100 + 100 < w && rect.top + 100 + 100 < h) {
-			SetWindowPos(m_main, 0, rect.left + 100, rect.top + 100, 1000, 1000, 0);
+
+		if (rect.left + 100 < screenW && rect.top + 100 < screenH) {
+			SetWindowPos(m_main, nullptr, rect.left + 100, rect.top + 100, 0, 0, SWP_NOSIZE | SWP_NOZORDER); // [cite: 44, 478]
 		}
-		POINT p;
-		GetCursorPos(&p);
 		return 0;
 	}
-	
+	}
+
+	// Wa¿ne: Wszystkie nieobs³u¿one komunikaty musz¹ trafiæ tutaj [cite: 160]
 	return DefWindowProcW(window, message, wparam, lparam);
 }
 app_2048::app_2048(HINSTANCE instance)

@@ -14,9 +14,11 @@ private:
 		WPARAM wparam, LPARAM lparam);//w³asciwa obsluga komunikatow
 	//HWND create_window();//tworzy okno
 	HWND create_window();
+	//HWND create_window2();
 	HINSTANCE m_instance;//uchwyt do obecnej instancji aplikacji
-	HWND m_main, m_popup;//uchwyt do okna
+	HWND m_main, m_rect_window;;//uchwyt do okna
 public:
 	app_2048(HINSTANCE instance);//konstruktor klasy
 	int run(int show_command);//petlakomunikatow
+
 };
